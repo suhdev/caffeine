@@ -135,28 +135,51 @@ class Program
 
     static void CacheWithSizeLimit()
     {
-        Console.WriteLine("Example 4: Cache with Size Limit (configured but not yet enforced)");
-        Console.WriteLine("------------------------------------------------------------------");
+        Console.WriteLine("Example 4: Cache with Size-Based Eviction - ✅ WORKING");
+        Console.WriteLine("--------------------------------------------------------");
 
         // Create a cache with a maximum size
-        // Note: Eviction is not yet implemented, but the API is ready
         var cache = Caffeine<string, string>.NewBuilder()
             .MaximumSize(3)
             .RecordStats()
             .Build();
 
-        // Add items
+        // Add 3 items - should fit within limit
         cache.Put("A", "Value A");
         cache.Put("B", "Value B");
         cache.Put("C", "Value C");
-        cache.Put("D", "Value D"); // Would exceed max size in full implementation
-
-        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
-        Console.WriteLine("Note: Automatic eviction based on size is planned for future implementation");
+        Console.WriteLine($"Initial cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"Keys: A={cache.GetIfPresent("A")}, B={cache.GetIfPresent("B")}, C={cache.GetIfPresent("C")}");
         
-        // Manual invalidation works
-        cache.Invalidate("A");
-        Console.WriteLine($"After invalidating 'A': {cache.EstimatedSize()}");
+        // Add 4th item - should evict the oldest (A)
+        Console.WriteLine("\nAdding 'D' (exceeds max size of 3)...");
+        cache.Put("D", "Value D");
+        
+        Console.WriteLine($"Cache size after adding D: {cache.EstimatedSize()}");
+        Console.WriteLine($"A: {cache.GetIfPresent("A") ?? "null (evicted)"} ");
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (kept)");
+        Console.WriteLine($"C: {cache.GetIfPresent("C")} (kept)");
+        Console.WriteLine($"D: {cache.GetIfPresent("D")} (new)");
+        
+        // Access B to make it most recently used
+        Console.WriteLine("\nAccessing 'B' to make it most recently used...");
+        _ = cache.GetIfPresent("B");
+        
+        // Add E - should evict C (LRU policy)
+        Console.WriteLine("Adding 'E'...");
+        cache.Put("E", "Value E");
+        
+        Console.WriteLine($"\nCache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (kept - recently accessed)");
+        Console.WriteLine($"C: {cache.GetIfPresent("C") ?? "null (evicted as LRU)"} ");
+        Console.WriteLine($"D: {cache.GetIfPresent("D")} (kept)");
+        Console.WriteLine($"E: {cache.GetIfPresent("E")} (new)");
+        
+        // Check statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Evictions: {stats.EvictionCount()} (due to size limit)");
+        Console.WriteLine($"  Hit Rate: {stats.HitRate():P2}");
     }
 
     static void CacheWithExpiration()

@@ -226,8 +226,17 @@ public sealed class Caffeine<K, V> where K : notnull
     /// <returns>A cache having the requested features</returns>
     public ICache<K, V> Build()
     {
-        // Use ExpiringCache if any time-based expiration is configured
-        if (_expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt)
+        bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
+        bool hasSizeLimit = _maximumSize != UnsetInt;
+
+        // For now, size-based eviction and time-based expiration are separate
+        // In future, we could create a combined implementation
+        if (hasSizeLimit)
+        {
+            return new BoundedCache<K, V>(this);
+        }
+
+        if (hasTimeExpiration)
         {
             return new ExpiringCache<K, V>(this);
         }
@@ -246,8 +255,17 @@ public sealed class Caffeine<K, V> where K : notnull
     {
         ArgumentNullException.ThrowIfNull(loader);
         
-        // Use ExpiringLoadingCache if any time-based expiration is configured
-        if (_expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt)
+        bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
+        bool hasSizeLimit = _maximumSize != UnsetInt;
+
+        // For now, size-based eviction and time-based expiration are separate
+        // In future, we could create a combined implementation
+        if (hasSizeLimit)
+        {
+            return new BoundedLoadingCache<K, V>(this, loader);
+        }
+
+        if (hasTimeExpiration)
         {
             return new ExpiringLoadingCache<K, V>(this, loader);
         }
@@ -266,8 +284,17 @@ public sealed class Caffeine<K, V> where K : notnull
     {
         ArgumentNullException.ThrowIfNull(loader);
         
-        // Use ExpiringLoadingCache if any time-based expiration is configured
-        if (_expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt)
+        bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
+        bool hasSizeLimit = _maximumSize != UnsetInt;
+
+        // For now, size-based eviction and time-based expiration are separate
+        // In future, we could create a combined implementation
+        if (hasSizeLimit)
+        {
+            return new BoundedLoadingCache<K, V>(this, loader.Load);
+        }
+
+        if (hasTimeExpiration)
         {
             return new ExpiringLoadingCache<K, V>(this, loader.Load);
         }
