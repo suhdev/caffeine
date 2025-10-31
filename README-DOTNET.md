@@ -4,7 +4,7 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 
 ## Status
 
-🚀 **Functional Core Implementation** - The basic caching functionality is implemented and working!
+🚀 **Functional Core Implementation with Time-Based Expiration** - The basic caching functionality including time-based expiration is implemented and working!
 
 ### Completed Components
 
@@ -15,14 +15,14 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 - ✅ Simple concurrent cache implementation
 - ✅ Loading cache with automatic value loading
 - ✅ Cache loader interface (`ICacheLoader<K,V>`)
-- ✅ Comprehensive test suite (10/10 tests passing)
+- ✅ **Time-based expiration (ExpireAfterWrite, ExpireAfterAccess)** ⭐ NEW
+- ✅ Comprehensive test suite (19/19 tests passing)
 - ✅ Working example application
 - ✅ .NET 8 project structure with solution file
 
 ### In Progress / Future Work
 
 - 🔄 Bounded cache with size-based eviction
-- 🔄 Time-based expiration (ExpireAfterWrite, ExpireAfterAccess)
 - 🔄 Automatic refresh (RefreshAfterWrite)
 - 🔄 Custom weigher for eviction
 - 🔄 Weak/soft reference support
@@ -39,6 +39,7 @@ Caffeine provides an in-memory cache using a design inspired by Google Guava. Th
 - **Thread-safe** operations using `ConcurrentDictionary`
 - **Fluent builder API** for easy configuration
 - **Manual and automatic** cache loading
+- **Time-based expiration** - ExpireAfterWrite and ExpireAfterAccess with automatic eviction ⭐
 - **Statistics tracking** for monitoring cache performance
 - **Flexible configuration** with initial capacity, maximum size, and expiration settings
 - **Type-safe** with generic support and nullable reference types
@@ -52,6 +53,7 @@ using Caffeine.Cache;
 var cache = Caffeine<string, string>.NewBuilder()
     .InitialCapacity(100)
     .MaximumSize(10_000)
+    .ExpireAfterWrite(TimeSpan.FromMinutes(5))  // Entries expire 5 minutes after write
     .RecordStats()
     .Build();
 
@@ -63,6 +65,14 @@ Console.WriteLine(value); // Hello, World!
 // Get with computing function
 var computed = cache.Get("missing", key => "Computed Value");
 Console.WriteLine(computed); // Computed Value
+
+// Create a cache with access-based expiration
+var sessionCache = Caffeine<string, string>.NewBuilder()
+    .ExpireAfterAccess(TimeSpan.FromMinutes(30))  // Expire 30 min after last access
+    .Build();
+
+sessionCache.Put("sessionId", "userData");
+// Entry stays fresh as long as it's accessed within 30 minutes
 
 // Create a loading cache
 var loadingCache = Caffeine<int, string>.NewBuilder()

@@ -37,6 +37,10 @@ class Program
         // Example 4: Cache with Size Limit
         CacheWithSizeLimit();
         Console.WriteLine();
+
+        // Example 5: Cache with Time-Based Expiration
+        CacheWithExpiration();
+        Console.WriteLine();
     }
 
     static void SimpleCache()
@@ -153,5 +157,49 @@ class Program
         // Manual invalidation works
         cache.Invalidate("A");
         Console.WriteLine($"After invalidating 'A': {cache.EstimatedSize()}");
+    }
+
+    static void CacheWithExpiration()
+    {
+        Console.WriteLine("Example 5: Cache with Time-Based Expiration - ✅ WORKING");
+        Console.WriteLine("----------------------------------------------------------");
+
+        // Create a cache with time-based expiration
+        var cache = Caffeine<string, string>.NewBuilder()
+            .ExpireAfterWrite(TimeSpan.FromSeconds(2))
+            .RecordStats()
+            .Build();
+
+        // Add some values
+        cache.Put("session1", "user123");
+        cache.Put("session2", "user456");
+        
+        Console.WriteLine($"Initial cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"Value for session1: {cache.GetIfPresent("session1")}");
+        
+        // Wait 1 second (entries still valid)
+        Console.WriteLine("\nWaiting 1 second...");
+        Thread.Sleep(1000);
+        Console.WriteLine($"After 1s - session1: {cache.GetIfPresent("session1")} (still valid)");
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        
+        // Wait another 1.5 seconds (entries should expire)
+        Console.WriteLine("\nWaiting another 1.5 seconds (total 2.5s)...");
+        Thread.Sleep(1500);
+        Console.WriteLine($"After 2.5s - session1: {cache.GetIfPresent("session1") ?? "null (expired)"} ");
+        Console.WriteLine($"After 2.5s - session2: {cache.GetIfPresent("session2") ?? "null (expired)"} ");
+        
+        // Check statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}");
+        Console.WriteLine($"  Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Evictions: {stats.EvictionCount()} (expired entries)");
+        
+        // Add a new entry to show it works after expiration
+        cache.Put("session3", "user789");
+        Console.WriteLine($"\nAdded new entry after expiration");
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"session3: {cache.GetIfPresent("session3")}");
     }
 }

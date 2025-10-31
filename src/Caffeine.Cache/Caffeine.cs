@@ -226,6 +226,12 @@ public sealed class Caffeine<K, V> where K : notnull
     /// <returns>A cache having the requested features</returns>
     public ICache<K, V> Build()
     {
+        // Use ExpiringCache if any time-based expiration is configured
+        if (_expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt)
+        {
+            return new ExpiringCache<K, V>(this);
+        }
+
         return new SimpleConcurrentCache<K, V>(this);
     }
 
@@ -239,6 +245,13 @@ public sealed class Caffeine<K, V> where K : notnull
     public ICache<K, V> Build(Func<K, V?> loader)
     {
         ArgumentNullException.ThrowIfNull(loader);
+        
+        // Use ExpiringLoadingCache if any time-based expiration is configured
+        if (_expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt)
+        {
+            return new ExpiringLoadingCache<K, V>(this, loader);
+        }
+
         return new LoadingCache<K, V>(this, loader);
     }
 
@@ -252,6 +265,13 @@ public sealed class Caffeine<K, V> where K : notnull
     public ICache<K, V> Build(ICacheLoader<K, V> loader)
     {
         ArgumentNullException.ThrowIfNull(loader);
+        
+        // Use ExpiringLoadingCache if any time-based expiration is configured
+        if (_expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt)
+        {
+            return new ExpiringLoadingCache<K, V>(this, loader.Load);
+        }
+
         return new LoadingCache<K, V>(this, loader.Load);
     }
 
@@ -268,5 +288,15 @@ public sealed class Caffeine<K, V> where K : notnull
     internal bool ShouldRecordStats()
     {
         return _recordStats;
+    }
+
+    internal long GetExpireAfterWriteNanos()
+    {
+        return _expireAfterWriteNanos;
+    }
+
+    internal long GetExpireAfterAccessNanos()
+    {
+        return _expireAfterAccessNanos;
     }
 }
