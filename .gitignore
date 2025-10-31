@@ -20,3 +20,14 @@ crash-*
 hs_err_pid*.log
 replay_pid*.log
 simulator/src/main/resources/application.conf
+
+# .NET build artifacts
+[Oo]bj/
+[Bb]in/
+*.dll
+*.pdb
+*.cache
+*.json
+!package.json
+!tsconfig.json
+!.vscode/*.json
