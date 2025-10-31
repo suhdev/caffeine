@@ -4,11 +4,11 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 
 ## Status
 
-🚀 **Production-Ready Implementation with Removal Listeners** - The caching library now supports comprehensive event notifications!
+🚀 **Production-Ready Implementation with Async Support** - The caching library now supports asynchronous operations!
 
 ### Completed Components
 
-- ✅ Core cache interfaces (`ICache<K,V>`)
+- ✅ Core cache interfaces (`ICache<K,V>`, `IAsyncCache<K,V>`)
 - ✅ Statistics interfaces and implementations (`ICacheStats`, `CacheStats`)
 - ✅ Policy interfaces (`IPolicy<K,V>`)
 - ✅ Cache builder with fluent API (`Caffeine<K,V>`)
@@ -18,8 +18,9 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 - ✅ **Time-based expiration (ExpireAfterWrite, ExpireAfterAccess)** ⭐
 - ✅ **Size-based eviction with LRU policy** ⭐
 - ✅ **Combined size + time-based eviction** ⭐
-- ✅ **Removal listeners with cause tracking** ⭐ NEW
-- ✅ Comprehensive test suite (49/49 tests passing)
+- ✅ **Removal listeners with cause tracking** ⭐
+- ✅ **Async cache support (IAsyncCache, IAsyncLoadingCache)** ⭐ NEW
+- ✅ Comprehensive test suite (77/77 tests passing)
 - ✅ Working example application
 - ✅ .NET 8 project structure with solution file
 
@@ -29,7 +30,6 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 - 🔄 Custom weigher for eviction
 - 🔄 Weak/soft reference support
 - 🔄 Advanced eviction policies (W-TinyLFU)
-- 🔄 Async cache support
 
 ## Overview
 
@@ -44,6 +44,7 @@ Caffeine provides an in-memory cache using a design inspired by Google Guava. Th
 - **Size-based eviction** - LRU (Least Recently Used) policy when maximum size is exceeded ⭐
 - **Combined eviction** - Simultaneous size and time-based eviction in a single cache ⭐
 - **Removal listeners** - Event notifications for all cache entry removals with cause tracking ⭐
+- **Async operations** - Full async/await support with IAsyncCache and IAsyncLoadingCache ⭐
 - **Statistics tracking** for monitoring cache performance including eviction counts
 - **Flexible configuration** with initial capacity, maximum size, and expiration settings
 - **Type-safe** with generic support and nullable reference types
@@ -123,6 +124,38 @@ Console.WriteLine(one); // One
 var stats = cache.Stats();
 Console.WriteLine($"Hit Rate: {stats.HitRate():P2}");
 Console.WriteLine($"Miss Rate: {stats.MissRate():P2}");
+
+// Async cache operations
+var asyncCache = Caffeine<int, string>.NewBuilder()
+    .RecordStats()
+    .BuildAsync();
+
+await asyncCache.PutAsync(1, "value1");
+var value = await asyncCache.GetIfPresentAsync(1);
+
+// Async cache with computation
+var computed = await asyncCache.GetAsync(2, async (key, ct) =>
+{
+    await Task.Delay(100, ct); // Simulate async operation
+    return $"computed-{key}";
+});
+
+// Async loading cache
+var asyncLoadingCache = Caffeine<int, User>.NewBuilder()
+    .ExpireAfterWrite(TimeSpan.FromMinutes(5))
+    .BuildAsync(async (userId, ct) =>
+    {
+        // Simulate async database call
+        await Task.Delay(50, ct);
+        return await FetchUserFromDatabaseAsync(userId, ct);
+    });
+
+var user = await asyncLoadingCache.GetAsync(42);
+var users = await asyncLoadingCache.GetAllAsync(new[] { 1, 2, 3 });
+
+// Access synchronous view from async cache
+var syncView = asyncCache.Synchronous();
+syncView.Put(3, "value3");
 ```
 
 For more examples, see the [Caffeine.Example](examples/Caffeine.Example/Program.cs) project.

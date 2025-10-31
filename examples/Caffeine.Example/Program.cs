@@ -49,6 +49,14 @@ class Program
         // Example 7: Removal Listener
         RemovalListenerExample();
         Console.WriteLine();
+
+        // Example 8: Async Cache
+        AsyncCacheExample().Wait();
+        Console.WriteLine();
+
+        // Example 9: Async Loading Cache
+        AsyncLoadingCacheExample().Wait();
+        Console.WriteLine();
     }
 
     static void SimpleCache()
@@ -340,5 +348,105 @@ class Program
         Console.WriteLine($"  Replaced: {removedEntries.Count(e => e.cause == "Value replaced")}");
         Console.WriteLine($"  Size limit: {removedEntries.Count(e => e.cause == "Size limit")}");
         Console.WriteLine($"  Explicit: {removedEntries.Count(e => e.cause == "Explicit removal")}");
+    }
+
+    static async Task AsyncCacheExample()
+    {
+        Console.WriteLine("Example 8: Async Cache");
+        Console.WriteLine("----------------------");
+
+        // Create an async cache
+        var cache = Caffeine<int, string>.NewBuilder()
+            .RecordStats()
+            .BuildAsync();
+
+        Console.WriteLine("Async cache operations:");
+        
+        // Put values asynchronously
+        await cache.PutAsync(1, "One");
+        await cache.PutAsync(2, "Two");
+        await cache.PutAsync(3, "Three");
+        Console.WriteLine("  Added 3 entries asynchronously");
+
+        // Get values asynchronously
+        var value1 = await cache.GetIfPresentAsync(1);
+        var value2 = await cache.GetIfPresentAsync(2);
+        Console.WriteLine($"  Retrieved: key=1 -> {value1}, key=2 -> {value2}");
+
+        // Get with async computation
+        var value4 = await cache.GetAsync(4, async (key, ct) =>
+        {
+            Console.WriteLine($"  Computing value for key={key} asynchronously...");
+            await Task.Delay(100, ct); // Simulate async operation
+            return $"Computed-{key}";
+        });
+        Console.WriteLine($"  Computed and cached: key=4 -> {value4}");
+
+        // Get all present
+        var allValues = await cache.GetAllPresentAsync(new[] { 1, 2, 3, 4, 5 });
+        Console.WriteLine($"  Retrieved {allValues.Count} entries (key 5 not present)");
+
+        // Show statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nCache statistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}, Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Hit rate: {stats.HitRate():P2}");
+    }
+
+    static async Task AsyncLoadingCacheExample()
+    {
+        Console.WriteLine("Example 9: Async Loading Cache");
+        Console.WriteLine("-------------------------------");
+
+        // Create an async loading cache with simulated database access
+        var dbAccessCount = 0;
+        var cache = Caffeine<int, string>.NewBuilder()
+            .RecordStats()
+            .ExpireAfterWrite(TimeSpan.FromSeconds(2))
+            .BuildAsync(async (userId, ct) =>
+            {
+                Console.WriteLine($"  [DB] Loading user {userId} from database...");
+                dbAccessCount++;
+                await Task.Delay(50, ct); // Simulate database latency
+                return $"User{userId}@example.com";
+            });
+
+        Console.WriteLine("Fetching user 1 (cache miss):");
+        var email1 = await cache.GetAsync(1);
+        Console.WriteLine($"  Result: {email1}");
+
+        Console.WriteLine("\nFetching user 1 again (cache hit):");
+        var email1Again = await cache.GetAsync(1);
+        Console.WriteLine($"  Result: {email1Again}");
+
+        Console.WriteLine("\nFetching multiple users:");
+        var emails = await cache.GetAllAsync(new[] { 1, 2, 3, 4 });
+        foreach (var kvp in emails)
+        {
+            Console.WriteLine($"  User {kvp.Key}: {kvp.Value}");
+        }
+
+        Console.WriteLine($"\nTotal database accesses: {dbAccessCount}");
+        Console.WriteLine("(User 1 loaded from cache, users 2-4 loaded from DB)");
+
+        // Wait for expiration
+        Console.WriteLine("\nWaiting for entries to expire (2 seconds)...");
+        await Task.Delay(2100);
+        await cache.CleanUpAsync();
+
+        Console.WriteLine("After expiration:");
+        Console.WriteLine($"  Cache size: {cache.EstimatedSize()}");
+
+        Console.WriteLine("\nFetching user 1 again (expired, reloads from DB):");
+        var email1Expired = await cache.GetAsync(1);
+        Console.WriteLine($"  Result: {email1Expired}");
+        Console.WriteLine($"  Total database accesses: {dbAccessCount}");
+
+        // Show final statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nFinal statistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}, Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Load successes: {stats.LoadSuccessCount()}");
+        Console.WriteLine($"  Evictions: {stats.EvictionCount()}");
     }
 }

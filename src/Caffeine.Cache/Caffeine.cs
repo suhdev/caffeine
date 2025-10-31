@@ -370,4 +370,85 @@ public sealed class Caffeine<K, V> where K : notnull
     {
         return _removalListener;
     }
+
+    /// <summary>
+    /// Builds an async cache that wraps the synchronous cache implementation.
+    /// All operations are executed asynchronously using Task.Run.
+    /// </summary>
+    /// <returns>An async cache having the requested features</returns>
+    public IAsyncCache<K, V> BuildAsync()
+    {
+        var syncCache = Build();
+        return new AsyncCacheWrapper<K, V>(syncCache);
+    }
+
+    /// <summary>
+    /// Builds an async loading cache which automatically loads values when keys are requested, 
+    /// using the supplied <paramref name="loader"/>.
+    /// </summary>
+    /// <param name="loader">The cache loader used to obtain new values</param>
+    /// <returns>An async loading cache having the requested features</returns>
+    /// <exception cref="ArgumentNullException">If <paramref name="loader"/> is null</exception>
+    public IAsyncLoadingCache<K, V> BuildAsync(ICacheLoader<K, V> loader)
+    {
+        ArgumentNullException.ThrowIfNull(loader);
+        var syncCache = Build(loader);
+        return new AsyncLoadingCacheImpl<K, V>(syncCache, loader);
+    }
+
+    /// <summary>
+    /// Builds an async loading cache which automatically loads values when keys are requested, 
+    /// using the supplied async <paramref name="asyncLoader"/> function.
+    /// </summary>
+    /// <param name="asyncLoader">The async function to compute values</param>
+    /// <returns>An async loading cache having the requested features</returns>
+    /// <exception cref="ArgumentNullException">If <paramref name="asyncLoader"/> is null</exception>
+    public IAsyncLoadingCache<K, V> BuildAsync(Func<K, CancellationToken, Task<V?>> asyncLoader)
+    {
+        ArgumentNullException.ThrowIfNull(asyncLoader);
+        
+        // Create a cache loader that wraps the async function
+        var loader = new AsyncFunctionCacheLoader<K, V>(asyncLoader);
+        var syncCache = Build(loader);
+        return new AsyncLoadingCacheImpl<K, V>(syncCache, loader);
+    }
+}
+
+/// <summary>
+/// Internal cache loader that wraps an async function.
+/// </summary>
+internal class AsyncFunctionCacheLoader<K, V> : ICacheLoader<K, V> where K : notnull
+{
+    private readonly Func<K, CancellationToken, Task<V?>> _asyncLoader;
+
+    public AsyncFunctionCacheLoader(Func<K, CancellationToken, Task<V?>> asyncLoader)
+    {
+        _asyncLoader = asyncLoader ?? throw new ArgumentNullException(nameof(asyncLoader));
+    }
+
+    public V? Load(K key)
+    {
+        // For synchronous calls, execute the async function and wait
+        return _asyncLoader(key, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    public Task<V?> AsyncLoad(K key)
+    {
+        return _asyncLoader(key, CancellationToken.None);
+    }
+
+    public async Task<IDictionary<K, V>> AsyncLoadAll(ISet<K> keys)
+    {
+        // Load each key individually
+        var result = new Dictionary<K, V>();
+        foreach (var key in keys)
+        {
+            var value = await AsyncLoad(key);
+            if (value != null)
+            {
+                result[key] = value;
+            }
+        }
+        return result;
+    }
 }
