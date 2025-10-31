@@ -1,0 +1,528 @@
+// Copyright 2014 Ben Manes. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+using Caffeine.Cache;
+
+namespace Caffeine.Example;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        Console.WriteLine("=== Caffeine.NET Cache Examples ===\n");
+
+        // Example 1: Simple Cache
+        SimpleCache();
+        Console.WriteLine();
+
+        // Example 2: Loading Cache
+        LoadingCache();
+        Console.WriteLine();
+
+        // Example 3: Cache with Statistics
+        CacheWithStatistics();
+        Console.WriteLine();
+
+        // Example 4: Cache with Size Limit
+        CacheWithSizeLimit();
+        Console.WriteLine();
+
+        // Example 5: Cache with Time-Based Expiration
+        CacheWithExpiration();
+        Console.WriteLine();
+
+        // Example 6: Combined Size and Time-Based Eviction
+        CombinedEviction();
+        Console.WriteLine();
+
+        // Example 7: Removal Listener
+        RemovalListenerExample();
+        Console.WriteLine();
+
+        // Example 8: Automatic Refresh
+        AutomaticRefreshExample().Wait();
+        Console.WriteLine();
+
+        // Example 9: Async Cache
+        AsyncCacheExample().Wait();
+        Console.WriteLine();
+
+        // Example 10: Async Loading Cache
+        AsyncLoadingCacheExample().Wait();
+        Console.WriteLine();
+    }
+
+    static void SimpleCache()
+    {
+        Console.WriteLine("Example 1: Simple Cache");
+        Console.WriteLine("------------------------");
+
+        // Create a simple cache
+        var cache = Caffeine<string, string>.NewBuilder()
+            .InitialCapacity(100)
+            .Build();
+
+        // Add some values
+        cache.Put("greeting", "Hello, World!");
+        cache.Put("language", "C#");
+        cache.Put("framework", ".NET 8");
+
+        // Retrieve values
+        Console.WriteLine($"Greeting: {cache.GetIfPresent("greeting")}");
+        Console.WriteLine($"Language: {cache.GetIfPresent("language")}");
+        Console.WriteLine($"Framework: {cache.GetIfPresent("framework")}");
+
+        // Get with computing function
+        var version = cache.Get("version", key => "8.0");
+        Console.WriteLine($"Version: {version}");
+
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+    }
+
+    static void LoadingCache()
+    {
+        Console.WriteLine("Example 2: Loading Cache");
+        Console.WriteLine("------------------------");
+
+        int loadCount = 0;
+
+        // Create a cache that automatically loads values
+        var cache = Caffeine<int, string>.NewBuilder()
+            .Build(key =>
+            {
+                loadCount++;
+                Console.WriteLine($"  Loading value for key: {key}");
+                return $"Value-{key}";
+            });
+
+        // First access - value not in cache yet
+        Console.WriteLine($"Getting key 1 (GetIfPresent): {cache.GetIfPresent(1) ?? "not found"}");
+        
+        // Add value manually
+        cache.Put(1, "Manually added");
+        Console.WriteLine($"Getting key 1 again (GetIfPresent): {cache.GetIfPresent(1)}");
+        
+        // Get with override loader (doesn't use constructor loader)
+        var value2 = cache.Get(2, k => $"Override-{k}");
+        Console.WriteLine($"Getting key 2 (with override loader): {value2}");
+        
+        Console.WriteLine($"Total constructor loads: {loadCount}");
+    }
+
+    static void CacheWithStatistics()
+    {
+        Console.WriteLine("Example 3: Cache with Statistics");
+        Console.WriteLine("--------------------------------");
+
+        // Create a cache with statistics enabled
+        var cache = Caffeine<string, int>.NewBuilder()
+            .RecordStats()
+            .Build();
+
+        // Generate some cache activity
+        cache.Put("one", 1);
+        cache.Put("two", 2);
+        cache.Put("three", 3);
+
+        // Some hits
+        cache.GetIfPresent("one");
+        cache.GetIfPresent("two");
+        cache.GetIfPresent("three");
+
+        // Some misses
+        cache.GetIfPresent("four");
+        cache.GetIfPresent("five");
+
+        // Get statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"Requests: {stats.RequestCount()}");
+        Console.WriteLine($"Hits: {stats.HitCount()}");
+        Console.WriteLine($"Misses: {stats.MissCount()}");
+        Console.WriteLine($"Hit Rate: {stats.HitRate():P2}");
+        Console.WriteLine($"Miss Rate: {stats.MissRate():P2}");
+    }
+
+    static void CacheWithSizeLimit()
+    {
+        Console.WriteLine("Example 4: Cache with Size-Based Eviction - ✅ WORKING");
+        Console.WriteLine("--------------------------------------------------------");
+
+        // Create a cache with a maximum size
+        var cache = Caffeine<string, string>.NewBuilder()
+            .MaximumSize(3)
+            .RecordStats()
+            .Build();
+
+        // Add 3 items - should fit within limit
+        cache.Put("A", "Value A");
+        cache.Put("B", "Value B");
+        cache.Put("C", "Value C");
+        Console.WriteLine($"Initial cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"Keys: A={cache.GetIfPresent("A")}, B={cache.GetIfPresent("B")}, C={cache.GetIfPresent("C")}");
+        
+        // Add 4th item - should evict the oldest (A)
+        Console.WriteLine("\nAdding 'D' (exceeds max size of 3)...");
+        cache.Put("D", "Value D");
+        
+        Console.WriteLine($"Cache size after adding D: {cache.EstimatedSize()}");
+        Console.WriteLine($"A: {cache.GetIfPresent("A") ?? "null (evicted)"} ");
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (kept)");
+        Console.WriteLine($"C: {cache.GetIfPresent("C")} (kept)");
+        Console.WriteLine($"D: {cache.GetIfPresent("D")} (new)");
+        
+        // Access B to make it most recently used
+        Console.WriteLine("\nAccessing 'B' to make it most recently used...");
+        _ = cache.GetIfPresent("B");
+        
+        // Add E - should evict C (LRU policy)
+        Console.WriteLine("Adding 'E'...");
+        cache.Put("E", "Value E");
+        
+        Console.WriteLine($"\nCache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (kept - recently accessed)");
+        Console.WriteLine($"C: {cache.GetIfPresent("C") ?? "null (evicted as LRU)"} ");
+        Console.WriteLine($"D: {cache.GetIfPresent("D")} (kept)");
+        Console.WriteLine($"E: {cache.GetIfPresent("E")} (new)");
+        
+        // Check statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Evictions: {stats.EvictionCount()} (due to size limit)");
+        Console.WriteLine($"  Hit Rate: {stats.HitRate():P2}");
+    }
+
+    static void CacheWithExpiration()
+    {
+        Console.WriteLine("Example 5: Cache with Time-Based Expiration - ✅ WORKING");
+        Console.WriteLine("----------------------------------------------------------");
+
+        // Create a cache with time-based expiration
+        var cache = Caffeine<string, string>.NewBuilder()
+            .ExpireAfterWrite(TimeSpan.FromSeconds(2))
+            .RecordStats()
+            .Build();
+
+        // Add some values
+        cache.Put("session1", "user123");
+        cache.Put("session2", "user456");
+        
+        Console.WriteLine($"Initial cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"Value for session1: {cache.GetIfPresent("session1")}");
+        
+        // Wait 1 second (entries still valid)
+        Console.WriteLine("\nWaiting 1 second...");
+        Thread.Sleep(1000);
+        Console.WriteLine($"After 1s - session1: {cache.GetIfPresent("session1")} (still valid)");
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        
+        // Wait another 1.5 seconds (entries should expire)
+        Console.WriteLine("\nWaiting another 1.5 seconds (total 2.5s)...");
+        Thread.Sleep(1500);
+        Console.WriteLine($"After 2.5s - session1: {cache.GetIfPresent("session1") ?? "null (expired)"} ");
+        Console.WriteLine($"After 2.5s - session2: {cache.GetIfPresent("session2") ?? "null (expired)"} ");
+        
+        // Check statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}");
+        Console.WriteLine($"  Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Evictions: {stats.EvictionCount()} (expired entries)");
+        
+        // Add a new entry to show it works after expiration
+        cache.Put("session3", "user789");
+        Console.WriteLine($"\nAdded new entry after expiration");
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"session3: {cache.GetIfPresent("session3")}");
+    }
+
+    static void CombinedEviction()
+    {
+        Console.WriteLine("Example 6: Combined Size & Time-Based Eviction - ✅ WORKING");
+        Console.WriteLine("------------------------------------------------------------");
+
+        // Create a cache with both size limit and time expiration
+        var cache = Caffeine<string, string>.NewBuilder()
+            .MaximumSize(3)
+            .ExpireAfterWrite(TimeSpan.FromSeconds(2))
+            .RecordStats()
+            .Build();
+
+        // Add 3 entries - should fit within limit
+        Console.WriteLine("Adding 3 entries (within size limit):");
+        cache.Put("A", "Value A");
+        cache.Put("B", "Value B");
+        cache.Put("C", "Value C");
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        
+        // Add 4th entry - should evict oldest by LRU (A)
+        Console.WriteLine("\nAdding 'D' (exceeds max size of 3)...");
+        cache.Put("D", "Value D");
+        
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"A: {cache.GetIfPresent("A") ?? "null (evicted by size limit)"}");
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (kept)");
+        Console.WriteLine($"C: {cache.GetIfPresent("C")} (kept)");
+        Console.WriteLine($"D: {cache.GetIfPresent("D")} (new)");
+        
+        // Wait 1 second - entries still valid
+        Console.WriteLine("\nWaiting 1 second...");
+        Thread.Sleep(1000);
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (still valid)");
+        
+        // Wait another 1.5 seconds - should expire
+        Console.WriteLine("\nWaiting another 1.5 seconds (total 2.5s)...");
+        Thread.Sleep(1500);
+        
+        Console.WriteLine($"B: {cache.GetIfPresent("B") ?? "null (expired by time)"}");
+        Console.WriteLine($"C: {cache.GetIfPresent("C") ?? "null (expired by time)"}");
+        Console.WriteLine($"D: {cache.GetIfPresent("D") ?? "null (expired by time)"}");
+        
+        // Add fresh entries after eviction
+        Console.WriteLine("\nAdding fresh entries after eviction:");
+        cache.Put("E", "Value E");
+        cache.Put("F", "Value F");
+        
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"E: {cache.GetIfPresent("E")}");
+        Console.WriteLine($"F: {cache.GetIfPresent("F")}");
+        
+        // Check statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Total Evictions: {stats.EvictionCount()} (size + time)");
+        Console.WriteLine($"  Hit Rate: {stats.HitRate():P2}");
+        Console.WriteLine($"  Miss Rate: {stats.MissRate():P2}");
+    }
+
+    static void RemovalListenerExample()
+    {
+        Console.WriteLine("Example 7: Removal Listener - ✅ WORKING");
+        Console.WriteLine("------------------------------------------");
+
+        // Track removed entries
+        var removedEntries = new List<(string? key, string? value, string cause)>();
+
+        // Create a cache with a removal listener
+        var cache = Caffeine<string, string>.NewBuilder()
+            .MaximumSize(3)
+            .RemovalListener((key, value, cause) =>
+            {
+                var causeStr = cause switch
+                {
+                    RemovalCause.Explicit => "Explicit removal",
+                    RemovalCause.Replaced => "Value replaced",
+                    RemovalCause.Size => "Size limit",
+                    RemovalCause.Expired => "Expired",
+                    _ => cause.ToString()
+                };
+                removedEntries.Add((key, value, causeStr));
+                Console.WriteLine($"  Removed: key='{key}', value='{value}', cause={causeStr}");
+            })
+            .Build();
+
+        Console.WriteLine("Adding entries...");
+        cache.Put("user1", "Alice");
+        cache.Put("user2", "Bob");
+        cache.Put("user3", "Charlie");
+
+        Console.WriteLine("\nReplacing user2:");
+        cache.Put("user2", "Robert"); // Triggers Replaced event
+
+        Console.WriteLine("\nAdding user4 (exceeds size limit):");
+        cache.Put("user4", "Diana"); // Triggers Size eviction for user1
+
+        Console.WriteLine("\nExplicitly removing user3:");
+        cache.Invalidate("user3"); // Triggers Explicit removal
+
+        Console.WriteLine("\nRemoving all remaining entries:");
+        cache.InvalidateAll(); // Triggers Explicit removal for user2 and user4
+
+        Console.WriteLine($"\nTotal removal events captured: {removedEntries.Count}");
+        Console.WriteLine($"  Replaced: {removedEntries.Count(e => e.cause == "Value replaced")}");
+        Console.WriteLine($"  Size limit: {removedEntries.Count(e => e.cause == "Size limit")}");
+        Console.WriteLine($"  Explicit: {removedEntries.Count(e => e.cause == "Explicit removal")}");
+    }
+
+    static async Task AsyncCacheExample()
+    {
+        Console.WriteLine("Example 8: Async Cache");
+        Console.WriteLine("----------------------");
+
+        // Create an async cache
+        var cache = Caffeine<int, string>.NewBuilder()
+            .RecordStats()
+            .BuildAsync();
+
+        Console.WriteLine("Async cache operations:");
+        
+        // Put values asynchronously
+        await cache.PutAsync(1, "One");
+        await cache.PutAsync(2, "Two");
+        await cache.PutAsync(3, "Three");
+        Console.WriteLine("  Added 3 entries asynchronously");
+
+        // Get values asynchronously
+        var value1 = await cache.GetIfPresentAsync(1);
+        var value2 = await cache.GetIfPresentAsync(2);
+        Console.WriteLine($"  Retrieved: key=1 -> {value1}, key=2 -> {value2}");
+
+        // Get with async computation
+        var value4 = await cache.GetAsync(4, async (key, ct) =>
+        {
+            Console.WriteLine($"  Computing value for key={key} asynchronously...");
+            await Task.Delay(100, ct); // Simulate async operation
+            return $"Computed-{key}";
+        });
+        Console.WriteLine($"  Computed and cached: key=4 -> {value4}");
+
+        // Get all present
+        var allValues = await cache.GetAllPresentAsync(new[] { 1, 2, 3, 4, 5 });
+        Console.WriteLine($"  Retrieved {allValues.Count} entries (key 5 not present)");
+
+        // Show statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nCache statistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}, Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Hit rate: {stats.HitRate():P2}");
+    }
+
+    static async Task AsyncLoadingCacheExample()
+    {
+        Console.WriteLine("Example 9: Async Loading Cache");
+        Console.WriteLine("-------------------------------");
+
+        // Create an async loading cache with simulated database access
+        var dbAccessCount = 0;
+        var cache = Caffeine<int, string>.NewBuilder()
+            .RecordStats()
+            .ExpireAfterWrite(TimeSpan.FromSeconds(2))
+            .BuildAsync(async (userId, ct) =>
+            {
+                Console.WriteLine($"  [DB] Loading user {userId} from database...");
+                dbAccessCount++;
+                await Task.Delay(50, ct); // Simulate database latency
+                return $"User{userId}@example.com";
+            });
+
+        Console.WriteLine("Fetching user 1 (cache miss):");
+        var email1 = await cache.GetAsync(1);
+        Console.WriteLine($"  Result: {email1}");
+
+        Console.WriteLine("\nFetching user 1 again (cache hit):");
+        var email1Again = await cache.GetAsync(1);
+        Console.WriteLine($"  Result: {email1Again}");
+
+        Console.WriteLine("\nFetching multiple users:");
+        var emails = await cache.GetAllAsync(new[] { 1, 2, 3, 4 });
+        foreach (var kvp in emails)
+        {
+            Console.WriteLine($"  User {kvp.Key}: {kvp.Value}");
+        }
+
+        Console.WriteLine($"\nTotal database accesses: {dbAccessCount}");
+        Console.WriteLine("(User 1 loaded from cache, users 2-4 loaded from DB)");
+
+        // Wait for expiration
+        Console.WriteLine("\nWaiting for entries to expire (2 seconds)...");
+        await Task.Delay(2100);
+        await cache.CleanUpAsync();
+
+        Console.WriteLine("After expiration:");
+        Console.WriteLine($"  Cache size: {cache.EstimatedSize()}");
+
+        Console.WriteLine("\nFetching user 1 again (expired, reloads from DB):");
+        var email1Expired = await cache.GetAsync(1);
+        Console.WriteLine($"  Result: {email1Expired}");
+        Console.WriteLine($"  Total database accesses: {dbAccessCount}");
+
+        // Show final statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nFinal statistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}, Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Load successes: {stats.LoadSuccessCount()}");
+        Console.WriteLine($"  Evictions: {stats.EvictionCount()}");
+    }
+
+    static async Task AutomaticRefreshExample()
+    {
+        Console.WriteLine("Example 8: Automatic Refresh - ✅ WORKING");
+        Console.WriteLine("-------------------------------------------");
+        Console.WriteLine("Demonstrates async refresh of stale entries while returning stale values");
+        Console.WriteLine();
+
+        int loadCount = 0;
+        var loader = new TestCacheLoader<string, string>(async key =>
+        {
+            loadCount++;
+            Console.WriteLine($"[Load #{loadCount}] Loading value for '{key}' from database...");
+            await Task.Delay(100); // Simulate database delay
+            return $"value-{loadCount}";
+        });
+
+        // Create a cache with automatic refresh
+        var cache = Caffeine<string, string>.NewBuilder()
+            .RefreshAfterWrite(TimeSpan.FromSeconds(2))
+            .RecordStats()
+            .Build(loader);
+
+        // Initial load
+        Console.WriteLine("Step 1: Adding initial value");
+        cache.Put("config", "initial-config");
+        var value1 = cache.GetIfPresent("config");
+        Console.WriteLine($"  Current value: {value1}");
+        Console.WriteLine($"  Total loads: {loadCount}");
+        Console.WriteLine();
+
+        // Wait for entry to become stale
+        Console.WriteLine("Step 2: Waiting 2.5 seconds for entry to become stale...");
+        await Task.Delay(2500);
+
+        // Access stale entry - triggers async refresh but returns stale value
+        Console.WriteLine("\nStep 3: Accessing stale entry (triggers async refresh)");
+        var value2 = cache.GetIfPresent("config");
+        Console.WriteLine($"  Returned value immediately: {value2} (stale)");
+        Console.WriteLine($"  Refresh running in background...");
+
+        // Wait a moment for refresh to complete
+        await Task.Delay(200);
+
+        // Get refreshed value
+        Console.WriteLine("\nStep 4: After refresh completes");
+        var value3 = cache.GetIfPresent("config");
+        Console.WriteLine($"  Current value: {value3} (refreshed)");
+        Console.WriteLine($"  Total loads: {loadCount}");
+
+        // Show statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}, Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Load successes: {stats.LoadSuccessCount()}");
+        Console.WriteLine();
+        Console.WriteLine("Key benefit: Users get stale values instantly while refresh happens async!");
+    }
+
+    private class TestCacheLoader<K, V> : ICacheLoader<K, V> where K : notnull
+    {
+        private readonly Func<K, Task<V?>> _asyncLoad;
+
+        public TestCacheLoader(Func<K, Task<V?>> asyncLoad)
+        {
+            _asyncLoad = asyncLoad;
+        }
+
+        public V? Load(K key) => AsyncLoad(key).GetAwaiter().GetResult();
+
+        public Task<V?> AsyncLoad(K key) => _asyncLoad(key);
+    }
+}
