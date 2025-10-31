@@ -28,6 +28,7 @@ internal sealed class BoundedCache<K, V> : ICache<K, V> where K : notnull
     private readonly object _evictionLock = new object();
     private readonly long _maximumSize;
     private readonly bool _recordStats;
+    private readonly RemovalListener<K, V>? _removalListener;
     private long _hitCount;
     private long _missCount;
     private long _evictionCount;
@@ -53,6 +54,7 @@ internal sealed class BoundedCache<K, V> : ICache<K, V> where K : notnull
             initialCapacity);
         _accessOrder = new LinkedList<CacheEntry>();
         _recordStats = builder.ShouldRecordStats();
+        _removalListener = builder.GetRemovalListener();
     }
 
     public V? GetIfPresent(K key)
@@ -181,6 +183,7 @@ internal sealed class BoundedCache<K, V> : ICache<K, V> where K : notnull
             if (_map.TryRemove(key, out var existingNode))
             {
                 _accessOrder.Remove(existingNode);
+                NotifyRemoval(key, existingNode.Value.Value, RemovalCause.Replaced);
             }
 
             // Add new entry
@@ -197,6 +200,7 @@ internal sealed class BoundedCache<K, V> : ICache<K, V> where K : notnull
                 {
                     _accessOrder.RemoveFirst();
                     _map.TryRemove(lruNode.Value.Key, out _);
+                    NotifyRemoval(lruNode.Value.Key, lruNode.Value.Value, RemovalCause.Size);
                     if (_recordStats) Interlocked.Increment(ref _evictionCount);
                 }
             }
@@ -226,6 +230,7 @@ internal sealed class BoundedCache<K, V> : ICache<K, V> where K : notnull
             if (_map.TryRemove(key, out var node))
             {
                 _accessOrder.Remove(node);
+                NotifyRemoval(key, node.Value.Value, RemovalCause.Explicit);
             }
         }
     }
@@ -248,6 +253,14 @@ internal sealed class BoundedCache<K, V> : ICache<K, V> where K : notnull
     {
         lock (_evictionLock)
         {
+            if (_removalListener != null)
+            {
+                foreach (var entry in _accessOrder)
+                {
+                    NotifyRemoval(entry.Key, entry.Value, RemovalCause.Explicit);
+                }
+            }
+
             _map.Clear();
             _accessOrder.Clear();
         }
@@ -298,5 +311,20 @@ internal sealed class BoundedCache<K, V> : ICache<K, V> where K : notnull
     public IPolicy<K, V> Policy()
     {
         return new SimplePolicy<K, V>();
+    }
+
+    private void NotifyRemoval(K key, V value, RemovalCause cause)
+    {
+        if (_removalListener == null)
+            return;
+
+        try
+        {
+            _removalListener(key, value, cause);
+        }
+        catch
+        {
+            // Swallow exceptions from removal listener as per contract
+        }
     }
 }

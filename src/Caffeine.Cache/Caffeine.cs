@@ -50,6 +50,7 @@ public sealed class Caffeine<K, V> where K : notnull
     private long _refreshAfterWriteNanos = UnsetInt;
 
     private bool _recordStats = false;
+    private RemovalListener<K, V>? _removalListener;
 
     private Caffeine() { }
 
@@ -217,6 +218,32 @@ public sealed class Caffeine<K, V> where K : notnull
     }
 
     /// <summary>
+    /// Specifies a listener instance that caches should notify each time an entry is removed 
+    /// for any reason. Each cache created by this builder will invoke this listener as part of 
+    /// the routine maintenance described in the class documentation.
+    /// <para>
+    /// Warning: any exception thrown by the listener will not be propagated to callers of the cache.
+    /// The listener should handle exceptions internally.
+    /// </para>
+    /// </summary>
+    /// <param name="listener">A listener instance that caches should notify each time an entry is removed</param>
+    /// <returns>This builder instance</returns>
+    /// <exception cref="ArgumentNullException">If <paramref name="listener"/> is null</exception>
+    /// <exception cref="InvalidOperationException">If a removal listener was already set</exception>
+    public Caffeine<K, V> RemovalListener(RemovalListener<K, V> listener)
+    {
+        ArgumentNullException.ThrowIfNull(listener);
+        
+        if (_removalListener != null)
+        {
+            throw new InvalidOperationException("Removal listener was already set");
+        }
+
+        _removalListener = listener;
+        return this;
+    }
+
+    /// <summary>
     /// Builds a cache which does not automatically load values when keys are requested.
     /// <para>
     /// Consider using <see cref="Build(Func{K, V?})"/> instead if it is feasible to 
@@ -337,5 +364,10 @@ public sealed class Caffeine<K, V> where K : notnull
     internal long GetExpireAfterAccessNanos()
     {
         return _expireAfterAccessNanos;
+    }
+
+    internal RemovalListener<K, V>? GetRemovalListener()
+    {
+        return _removalListener;
     }
 }

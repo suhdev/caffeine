@@ -45,6 +45,10 @@ class Program
         // Example 6: Combined Size and Time-Based Eviction
         CombinedEviction();
         Console.WriteLine();
+
+        // Example 7: Removal Listener
+        RemovalListenerExample();
+        Console.WriteLine();
     }
 
     static void SimpleCache()
@@ -287,5 +291,54 @@ class Program
         Console.WriteLine($"  Total Evictions: {stats.EvictionCount()} (size + time)");
         Console.WriteLine($"  Hit Rate: {stats.HitRate():P2}");
         Console.WriteLine($"  Miss Rate: {stats.MissRate():P2}");
+    }
+
+    static void RemovalListenerExample()
+    {
+        Console.WriteLine("Example 7: Removal Listener - ✅ WORKING");
+        Console.WriteLine("------------------------------------------");
+
+        // Track removed entries
+        var removedEntries = new List<(string? key, string? value, string cause)>();
+
+        // Create a cache with a removal listener
+        var cache = Caffeine<string, string>.NewBuilder()
+            .MaximumSize(3)
+            .RemovalListener((key, value, cause) =>
+            {
+                var causeStr = cause switch
+                {
+                    RemovalCause.Explicit => "Explicit removal",
+                    RemovalCause.Replaced => "Value replaced",
+                    RemovalCause.Size => "Size limit",
+                    RemovalCause.Expired => "Expired",
+                    _ => cause.ToString()
+                };
+                removedEntries.Add((key, value, causeStr));
+                Console.WriteLine($"  Removed: key='{key}', value='{value}', cause={causeStr}");
+            })
+            .Build();
+
+        Console.WriteLine("Adding entries...");
+        cache.Put("user1", "Alice");
+        cache.Put("user2", "Bob");
+        cache.Put("user3", "Charlie");
+
+        Console.WriteLine("\nReplacing user2:");
+        cache.Put("user2", "Robert"); // Triggers Replaced event
+
+        Console.WriteLine("\nAdding user4 (exceeds size limit):");
+        cache.Put("user4", "Diana"); // Triggers Size eviction for user1
+
+        Console.WriteLine("\nExplicitly removing user3:");
+        cache.Invalidate("user3"); // Triggers Explicit removal
+
+        Console.WriteLine("\nRemoving all remaining entries:");
+        cache.InvalidateAll(); // Triggers Explicit removal for user2 and user4
+
+        Console.WriteLine($"\nTotal removal events captured: {removedEntries.Count}");
+        Console.WriteLine($"  Replaced: {removedEntries.Count(e => e.cause == "Value replaced")}");
+        Console.WriteLine($"  Size limit: {removedEntries.Count(e => e.cause == "Size limit")}");
+        Console.WriteLine($"  Explicit: {removedEntries.Count(e => e.cause == "Explicit removal")}");
     }
 }

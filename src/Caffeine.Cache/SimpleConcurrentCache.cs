@@ -25,6 +25,7 @@ internal sealed class SimpleConcurrentCache<K, V> : ICache<K, V> where K : notnu
 {
     private readonly ConcurrentDictionary<K, V> _map;
     private readonly bool _recordStats;
+    private readonly RemovalListener<K, V>? _removalListener;
     private long _hitCount;
     private long _missCount;
 
@@ -35,6 +36,7 @@ internal sealed class SimpleConcurrentCache<K, V> : ICache<K, V> where K : notnu
             Environment.ProcessorCount,
             initialCapacity);
         _recordStats = builder.ShouldRecordStats();
+        _removalListener = builder.GetRemovalListener();
     }
 
     public V? GetIfPresent(K key)
@@ -133,6 +135,11 @@ internal sealed class SimpleConcurrentCache<K, V> : ICache<K, V> where K : notnu
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
 
+        if (_removalListener != null && _map.TryGetValue(key, out var oldValue))
+        {
+            NotifyRemoval(key, oldValue, RemovalCause.Replaced);
+        }
+
         _map[key] = value;
     }
 
@@ -146,6 +153,12 @@ internal sealed class SimpleConcurrentCache<K, V> : ICache<K, V> where K : notnu
             {
                 throw new ArgumentException("Map contains null keys or values", nameof(map));
             }
+
+            if (_removalListener != null && _map.TryGetValue(entry.Key, out var oldValue))
+            {
+                NotifyRemoval(entry.Key, oldValue, RemovalCause.Replaced);
+            }
+
             _map[entry.Key] = entry.Value;
         }
     }
@@ -153,7 +166,11 @@ internal sealed class SimpleConcurrentCache<K, V> : ICache<K, V> where K : notnu
     public void Invalidate(K key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        _map.TryRemove(key, out _);
+        
+        if (_map.TryRemove(key, out var value))
+        {
+            NotifyRemoval(key, value, RemovalCause.Explicit);
+        }
     }
 
     public void InvalidateAll(IEnumerable<K> keys)
@@ -166,12 +183,24 @@ internal sealed class SimpleConcurrentCache<K, V> : ICache<K, V> where K : notnu
             {
                 throw new ArgumentException("Keys collection contains null element", nameof(keys));
             }
-            _map.TryRemove(key, out _);
+            
+            if (_map.TryRemove(key, out var value))
+            {
+                NotifyRemoval(key, value, RemovalCause.Explicit);
+            }
         }
     }
 
     public void InvalidateAll()
     {
+        if (_removalListener != null)
+        {
+            foreach (var entry in _map)
+            {
+                NotifyRemoval(entry.Key, entry.Value, RemovalCause.Explicit);
+            }
+        }
+
         _map.Clear();
     }
 
@@ -210,6 +239,21 @@ internal sealed class SimpleConcurrentCache<K, V> : ICache<K, V> where K : notnu
     public IPolicy<K, V> Policy()
     {
         return new SimplePolicy<K, V>();
+    }
+
+    private void NotifyRemoval(K key, V value, RemovalCause cause)
+    {
+        if (_removalListener == null)
+            return;
+
+        try
+        {
+            _removalListener(key, value, cause);
+        }
+        catch
+        {
+            // Swallow exceptions from removal listener as per contract
+        }
     }
 }
 

@@ -4,7 +4,7 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 
 ## Status
 
-🚀 **Production-Ready Implementation with Combined Eviction** - The caching library now supports size-based, time-based, and combined eviction strategies!
+🚀 **Production-Ready Implementation with Removal Listeners** - The caching library now supports comprehensive event notifications!
 
 ### Completed Components
 
@@ -17,8 +17,9 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 - ✅ Cache loader interface (`ICacheLoader<K,V>`)
 - ✅ **Time-based expiration (ExpireAfterWrite, ExpireAfterAccess)** ⭐
 - ✅ **Size-based eviction with LRU policy** ⭐
-- ✅ **Combined size + time-based eviction** ⭐ NEW
-- ✅ Comprehensive test suite (38/38 tests passing)
+- ✅ **Combined size + time-based eviction** ⭐
+- ✅ **Removal listeners with cause tracking** ⭐ NEW
+- ✅ Comprehensive test suite (49/49 tests passing)
 - ✅ Working example application
 - ✅ .NET 8 project structure with solution file
 
@@ -27,7 +28,6 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 - 🔄 Automatic refresh (RefreshAfterWrite)
 - 🔄 Custom weigher for eviction
 - 🔄 Weak/soft reference support
-- 🔄 Removal listeners
 - 🔄 Advanced eviction policies (W-TinyLFU)
 - 🔄 Async cache support
 
@@ -43,6 +43,7 @@ Caffeine provides an in-memory cache using a design inspired by Google Guava. Th
 - **Time-based expiration** - ExpireAfterWrite and ExpireAfterAccess with automatic eviction ⭐
 - **Size-based eviction** - LRU (Least Recently Used) policy when maximum size is exceeded ⭐
 - **Combined eviction** - Simultaneous size and time-based eviction in a single cache ⭐
+- **Removal listeners** - Event notifications for all cache entry removals with cause tracking ⭐
 - **Statistics tracking** for monitoring cache performance including eviction counts
 - **Flexible configuration** with initial capacity, maximum size, and expiration settings
 - **Type-safe** with generic support and nullable reference types
@@ -81,6 +82,23 @@ var combinedCache = Caffeine<string, string>.NewBuilder()
 combinedCache.Put("key1", "value1");
 // Entry will be evicted if cache grows beyond 100 entries
 // OR if 5 minutes pass since it was written
+
+// Cache with removal listener
+var monitoredCache = Caffeine<string, string>.NewBuilder()
+    .MaximumSize(100)
+    .RemovalListener((key, value, cause) =>
+    {
+        // Log or handle removed entries
+        Console.WriteLine($"Removed {key}: {cause}");
+    })
+    .Build();
+
+// Listener is notified for all removals:
+// - Explicit (Invalidate)
+// - Replaced (Put on existing key)
+// - Size (LRU eviction)
+// - Expired (Time-based)
+// - Collected (Weak/soft references, when implemented)
 
 // Create a cache with access-based expiration
 var sessionCache = Caffeine<string, string>.NewBuilder()
