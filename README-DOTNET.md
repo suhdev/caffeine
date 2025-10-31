@@ -4,7 +4,7 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 
 ## Status
 
-🚀 **Functional Core Implementation with Time-Based and Size-Based Eviction** - The basic caching functionality including both time-based and size-based eviction is implemented and working!
+🚀 **Production-Ready Implementation with Combined Eviction** - The caching library now supports size-based, time-based, and combined eviction strategies!
 
 ### Completed Components
 
@@ -16,14 +16,14 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 - ✅ Loading cache with automatic value loading
 - ✅ Cache loader interface (`ICacheLoader<K,V>`)
 - ✅ **Time-based expiration (ExpireAfterWrite, ExpireAfterAccess)** ⭐
-- ✅ **Size-based eviction with LRU policy** ⭐ NEW
-- ✅ Comprehensive test suite (29/29 tests passing)
+- ✅ **Size-based eviction with LRU policy** ⭐
+- ✅ **Combined size + time-based eviction** ⭐ NEW
+- ✅ Comprehensive test suite (38/38 tests passing)
 - ✅ Working example application
 - ✅ .NET 8 project structure with solution file
 
 ### In Progress / Future Work
 
-- 🔄 Combined size + time-based eviction
 - 🔄 Automatic refresh (RefreshAfterWrite)
 - 🔄 Custom weigher for eviction
 - 🔄 Weak/soft reference support
@@ -42,6 +42,7 @@ Caffeine provides an in-memory cache using a design inspired by Google Guava. Th
 - **Manual and automatic** cache loading
 - **Time-based expiration** - ExpireAfterWrite and ExpireAfterAccess with automatic eviction ⭐
 - **Size-based eviction** - LRU (Least Recently Used) policy when maximum size is exceeded ⭐
+- **Combined eviction** - Simultaneous size and time-based eviction in a single cache ⭐
 - **Statistics tracking** for monitoring cache performance including eviction counts
 - **Flexible configuration** with initial capacity, maximum size, and expiration settings
 - **Type-safe** with generic support and nullable reference types
@@ -68,13 +69,18 @@ Console.WriteLine(value); // Hello, World!
 var computed = cache.Get("missing", key => "Computed Value");
 Console.WriteLine(computed); // Computed Value
 
-// Create a cache with size-based eviction
-var boundedCache = Caffeine<string, string>.NewBuilder()
-    .MaximumSize(100)  // Keep only 100 most recently used entries
+// Create a cache with both size and time-based eviction
+var combinedCache = Caffeine<string, string>.NewBuilder()
+    .MaximumSize(100)  // Keep only 100 entries
+    .ExpireAfterWrite(TimeSpan.FromMinutes(5))  // Also expire after 5 minutes
+    .RecordStats()
     .Build();
 
-boundedCache.Put("key1", "value1");
-// When 101st entry is added, least recently used entry is evicted
+// Entries are evicted by LRU when size is exceeded
+// OR by time expiration, whichever comes first
+combinedCache.Put("key1", "value1");
+// Entry will be evicted if cache grows beyond 100 entries
+// OR if 5 minutes pass since it was written
 
 // Create a cache with access-based expiration
 var sessionCache = Caffeine<string, string>.NewBuilder()

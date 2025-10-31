@@ -41,6 +41,10 @@ class Program
         // Example 5: Cache with Time-Based Expiration
         CacheWithExpiration();
         Console.WriteLine();
+
+        // Example 6: Combined Size and Time-Based Eviction
+        CombinedEviction();
+        Console.WriteLine();
     }
 
     static void SimpleCache()
@@ -224,5 +228,64 @@ class Program
         Console.WriteLine($"\nAdded new entry after expiration");
         Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
         Console.WriteLine($"session3: {cache.GetIfPresent("session3")}");
+    }
+
+    static void CombinedEviction()
+    {
+        Console.WriteLine("Example 6: Combined Size & Time-Based Eviction - ✅ WORKING");
+        Console.WriteLine("------------------------------------------------------------");
+
+        // Create a cache with both size limit and time expiration
+        var cache = Caffeine<string, string>.NewBuilder()
+            .MaximumSize(3)
+            .ExpireAfterWrite(TimeSpan.FromSeconds(2))
+            .RecordStats()
+            .Build();
+
+        // Add 3 entries - should fit within limit
+        Console.WriteLine("Adding 3 entries (within size limit):");
+        cache.Put("A", "Value A");
+        cache.Put("B", "Value B");
+        cache.Put("C", "Value C");
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        
+        // Add 4th entry - should evict oldest by LRU (A)
+        Console.WriteLine("\nAdding 'D' (exceeds max size of 3)...");
+        cache.Put("D", "Value D");
+        
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"A: {cache.GetIfPresent("A") ?? "null (evicted by size limit)"}");
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (kept)");
+        Console.WriteLine($"C: {cache.GetIfPresent("C")} (kept)");
+        Console.WriteLine($"D: {cache.GetIfPresent("D")} (new)");
+        
+        // Wait 1 second - entries still valid
+        Console.WriteLine("\nWaiting 1 second...");
+        Thread.Sleep(1000);
+        Console.WriteLine($"B: {cache.GetIfPresent("B")} (still valid)");
+        
+        // Wait another 1.5 seconds - should expire
+        Console.WriteLine("\nWaiting another 1.5 seconds (total 2.5s)...");
+        Thread.Sleep(1500);
+        
+        Console.WriteLine($"B: {cache.GetIfPresent("B") ?? "null (expired by time)"}");
+        Console.WriteLine($"C: {cache.GetIfPresent("C") ?? "null (expired by time)"}");
+        Console.WriteLine($"D: {cache.GetIfPresent("D") ?? "null (expired by time)"}");
+        
+        // Add fresh entries after eviction
+        Console.WriteLine("\nAdding fresh entries after eviction:");
+        cache.Put("E", "Value E");
+        cache.Put("F", "Value F");
+        
+        Console.WriteLine($"Cache size: {cache.EstimatedSize()}");
+        Console.WriteLine($"E: {cache.GetIfPresent("E")}");
+        Console.WriteLine($"F: {cache.GetIfPresent("F")}");
+        
+        // Check statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Total Evictions: {stats.EvictionCount()} (size + time)");
+        Console.WriteLine($"  Hit Rate: {stats.HitRate():P2}");
+        Console.WriteLine($"  Miss Rate: {stats.MissRate():P2}");
     }
 }

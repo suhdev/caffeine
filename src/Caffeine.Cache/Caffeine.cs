@@ -229,8 +229,12 @@ public sealed class Caffeine<K, V> where K : notnull
         bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
         bool hasSizeLimit = _maximumSize != UnsetInt;
 
-        // For now, size-based eviction and time-based expiration are separate
-        // In future, we could create a combined implementation
+        // Use combined implementation when both features are enabled
+        if (hasSizeLimit && hasTimeExpiration)
+        {
+            return new BoundedExpiringCache<K, V>(this);
+        }
+
         if (hasSizeLimit)
         {
             return new BoundedCache<K, V>(this);
@@ -258,8 +262,12 @@ public sealed class Caffeine<K, V> where K : notnull
         bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
         bool hasSizeLimit = _maximumSize != UnsetInt;
 
-        // For now, size-based eviction and time-based expiration are separate
-        // In future, we could create a combined implementation
+        // Use combined implementation when both features are enabled
+        if (hasSizeLimit && hasTimeExpiration)
+        {
+            return new BoundedExpiringLoadingCache<K, V>(this, loader);
+        }
+
         if (hasSizeLimit)
         {
             return new BoundedLoadingCache<K, V>(this, loader);
@@ -287,8 +295,12 @@ public sealed class Caffeine<K, V> where K : notnull
         bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
         bool hasSizeLimit = _maximumSize != UnsetInt;
 
-        // For now, size-based eviction and time-based expiration are separate
-        // In future, we could create a combined implementation
+        // Use combined implementation when both features are enabled
+        if (hasSizeLimit && hasTimeExpiration)
+        {
+            return new BoundedExpiringLoadingCache<K, V>(this, loader.Load);
+        }
+
         if (hasSizeLimit)
         {
             return new BoundedLoadingCache<K, V>(this, loader.Load);
