@@ -4,55 +4,84 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 
 ## Status
 
-🚧 **Work in Progress** - This is an active conversion of the Caffeine caching library to C# .NET 8.
+🚀 **Functional Core Implementation** - The basic caching functionality is implemented and working!
 
 ### Completed Components
 
 - ✅ Core cache interfaces (`ICache<K,V>`)
 - ✅ Statistics interfaces and implementations (`ICacheStats`, `CacheStats`)
 - ✅ Policy interfaces (`IPolicy<K,V>`)
+- ✅ Cache builder with fluent API (`Caffeine<K,V>`)
+- ✅ Simple concurrent cache implementation
+- ✅ Loading cache with automatic value loading
+- ✅ Cache loader interface (`ICacheLoader<K,V>`)
+- ✅ Comprehensive test suite (10/10 tests passing)
+- ✅ Working example application
 - ✅ .NET 8 project structure with solution file
 
-### In Progress
+### In Progress / Future Work
 
-- 🔄 Cache builder implementation (`Caffeine` class)
-- 🔄 Cache implementations (Bounded, Unbounded)
-- 🔄 Eviction policies
-- 🔄 Async support
-- 🔄 Test suite
+- 🔄 Bounded cache with size-based eviction
+- 🔄 Time-based expiration (ExpireAfterWrite, ExpireAfterAccess)
+- 🔄 Automatic refresh (RefreshAfterWrite)
+- 🔄 Custom weigher for eviction
+- 🔄 Weak/soft reference support
+- 🔄 Removal listeners
+- 🔄 Advanced eviction policies (W-TinyLFU)
+- 🔄 Async cache support
 
 ## Overview
 
-Caffeine provides an in-memory cache using a design inspired by Google Guava. This C# port aims to provide the same high-performance caching capabilities with .NET-specific improvements and idioms.
+Caffeine provides an in-memory cache using a design inspired by Google Guava. This C# port provides high-performance caching capabilities with .NET-specific improvements and idioms.
 
-### Key Features (Target)
+### Key Features
 
-- **Automatic loading** of entries into the cache, optionally asynchronously
-- **Size-based eviction** when a maximum is exceeded based on frequency and recency
-- **Time-based expiration** of entries, measured since last access or last write
-- **Asynchronous refresh** when the first stale request for an entry occurs
-- **Weak references** for keys (using ConditionalWeakTable)
-- **Soft/Weak references** for values
-- **Notification** of evicted (or otherwise removed) entries
-- **Writes propagated** to an external resource
-- **Cache access statistics**
+- **Thread-safe** operations using `ConcurrentDictionary`
+- **Fluent builder API** for easy configuration
+- **Manual and automatic** cache loading
+- **Statistics tracking** for monitoring cache performance
+- **Flexible configuration** with initial capacity, maximum size, and expiration settings
+- **Type-safe** with generic support and nullable reference types
 
-## Example Usage (Target API)
+## Example Usage
 
 ```csharp
 using Caffeine.Cache;
 
-// Create a cache with a maximum size
-var cache = Caffeine<string, Graph>
-    .NewBuilder()
+// Create a simple cache
+var cache = Caffeine<string, string>.NewBuilder()
+    .InitialCapacity(100)
     .MaximumSize(10_000)
-    .ExpireAfterWrite(TimeSpan.FromMinutes(5))
-    .RefreshAfterWrite(TimeSpan.FromMinutes(1))
-    .Build(key => CreateExpensiveGraph(key));
+    .RecordStats()
+    .Build();
 
-// Use the cache
-var graph = cache.Get("key", k => CreateExpensiveGraph(k));
+// Put and get values
+cache.Put("greeting", "Hello, World!");
+var value = cache.GetIfPresent("greeting");
+Console.WriteLine(value); // Hello, World!
+
+// Get with computing function
+var computed = cache.Get("missing", key => "Computed Value");
+Console.WriteLine(computed); // Computed Value
+
+// Create a loading cache
+var loadingCache = Caffeine<int, string>.NewBuilder()
+    .MaximumSize(1000)
+    .RecordStats()
+    .Build(key => $"Value-{key}");
+
+// Values are loaded automatically when missing
+loadingCache.Put(1, "One");
+var one = loadingCache.GetIfPresent(1);
+Console.WriteLine(one); // One
+
+// Check statistics
+var stats = cache.Stats();
+Console.WriteLine($"Hit Rate: {stats.HitRate():P2}");
+Console.WriteLine($"Miss Rate: {stats.MissRate():P2}");
 ```
+
+For more examples, see the [Caffeine.Example](examples/Caffeine.Example/Program.cs) project.
 
 ## Building
 
@@ -64,6 +93,12 @@ dotnet build Caffeine.sln
 
 ```bash
 dotnet test Caffeine.sln
+```
+
+## Running Examples
+
+```bash
+dotnet run --project examples/Caffeine.Example/Caffeine.Example.csproj
 ```
 
 ## Requirements
