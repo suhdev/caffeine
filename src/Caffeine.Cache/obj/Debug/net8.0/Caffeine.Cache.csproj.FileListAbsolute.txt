@@ -1,0 +1,12 @@
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/bin/Debug/net8.0/Caffeine.Cache.deps.json
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/bin/Debug/net8.0/Caffeine.Cache.dll
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/bin/Debug/net8.0/Caffeine.Cache.pdb
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/Caffeine.Cache.GeneratedMSBuildEditorConfig.editorconfig
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/Caffeine.Cache.AssemblyInfoInputs.cache
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/Caffeine.Cache.AssemblyInfo.cs
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/Caffeine.Cache.csproj.CoreCompileInputs.cache
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/Caffeine.Cache.sourcelink.json
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/Caffeine.Cache.dll
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/refint/Caffeine.Cache.dll
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/Caffeine.Cache.pdb
+/home/runner/work/caffeine/caffeine/src/Caffeine.Cache/obj/Debug/net8.0/ref/Caffeine.Cache.dll
