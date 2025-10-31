@@ -50,11 +50,15 @@ class Program
         RemovalListenerExample();
         Console.WriteLine();
 
-        // Example 8: Async Cache
+        // Example 8: Automatic Refresh
+        AutomaticRefreshExample().Wait();
+        Console.WriteLine();
+
+        // Example 9: Async Cache
         AsyncCacheExample().Wait();
         Console.WriteLine();
 
-        // Example 9: Async Loading Cache
+        // Example 10: Async Loading Cache
         AsyncLoadingCacheExample().Wait();
         Console.WriteLine();
     }
@@ -448,5 +452,77 @@ class Program
         Console.WriteLine($"  Hits: {stats.HitCount()}, Misses: {stats.MissCount()}");
         Console.WriteLine($"  Load successes: {stats.LoadSuccessCount()}");
         Console.WriteLine($"  Evictions: {stats.EvictionCount()}");
+    }
+
+    static async Task AutomaticRefreshExample()
+    {
+        Console.WriteLine("Example 8: Automatic Refresh - ✅ WORKING");
+        Console.WriteLine("-------------------------------------------");
+        Console.WriteLine("Demonstrates async refresh of stale entries while returning stale values");
+        Console.WriteLine();
+
+        int loadCount = 0;
+        var loader = new TestCacheLoader<string, string>(async key =>
+        {
+            loadCount++;
+            Console.WriteLine($"[Load #{loadCount}] Loading value for '{key}' from database...");
+            await Task.Delay(100); // Simulate database delay
+            return $"value-{loadCount}";
+        });
+
+        // Create a cache with automatic refresh
+        var cache = Caffeine<string, string>.NewBuilder()
+            .RefreshAfterWrite(TimeSpan.FromSeconds(2))
+            .RecordStats()
+            .Build(loader);
+
+        // Initial load
+        Console.WriteLine("Step 1: Adding initial value");
+        cache.Put("config", "initial-config");
+        var value1 = cache.GetIfPresent("config");
+        Console.WriteLine($"  Current value: {value1}");
+        Console.WriteLine($"  Total loads: {loadCount}");
+        Console.WriteLine();
+
+        // Wait for entry to become stale
+        Console.WriteLine("Step 2: Waiting 2.5 seconds for entry to become stale...");
+        await Task.Delay(2500);
+
+        // Access stale entry - triggers async refresh but returns stale value
+        Console.WriteLine("\nStep 3: Accessing stale entry (triggers async refresh)");
+        var value2 = cache.GetIfPresent("config");
+        Console.WriteLine($"  Returned value immediately: {value2} (stale)");
+        Console.WriteLine($"  Refresh running in background...");
+
+        // Wait a moment for refresh to complete
+        await Task.Delay(200);
+
+        // Get refreshed value
+        Console.WriteLine("\nStep 4: After refresh completes");
+        var value3 = cache.GetIfPresent("config");
+        Console.WriteLine($"  Current value: {value3} (refreshed)");
+        Console.WriteLine($"  Total loads: {loadCount}");
+
+        // Show statistics
+        var stats = cache.Stats();
+        Console.WriteLine($"\nStatistics:");
+        Console.WriteLine($"  Hits: {stats.HitCount()}, Misses: {stats.MissCount()}");
+        Console.WriteLine($"  Load successes: {stats.LoadSuccessCount()}");
+        Console.WriteLine();
+        Console.WriteLine("Key benefit: Users get stale values instantly while refresh happens async!");
+    }
+
+    private class TestCacheLoader<K, V> : ICacheLoader<K, V> where K : notnull
+    {
+        private readonly Func<K, Task<V?>> _asyncLoad;
+
+        public TestCacheLoader(Func<K, Task<V?>> asyncLoad)
+        {
+            _asyncLoad = asyncLoad;
+        }
+
+        public V? Load(K key) => AsyncLoad(key).GetAwaiter().GetResult();
+
+        public Task<V?> AsyncLoad(K key) => _asyncLoad(key);
     }
 }

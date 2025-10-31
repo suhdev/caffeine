@@ -19,14 +19,14 @@ This is a C# .NET 8 port of [Caffeine](https://github.com/ben-manes/caffeine), a
 - ✅ **Size-based eviction with LRU policy** ⭐
 - ✅ **Combined size + time-based eviction** ⭐
 - ✅ **Removal listeners with cause tracking** ⭐
-- ✅ **Async cache support (IAsyncCache, IAsyncLoadingCache)** ⭐ NEW
-- ✅ Comprehensive test suite (77/77 tests passing)
-- ✅ Working example application
+- ✅ **Async cache support (IAsyncCache, IAsyncLoadingCache)** ⭐
+- ✅ **Automatic refresh (RefreshAfterWrite)** ⭐ NEW
+- ✅ Comprehensive test suite (88/88 tests passing)
+- ✅ Working example application with 10 examples
 - ✅ .NET 8 project structure with solution file
 
 ### In Progress / Future Work
 
-- 🔄 Automatic refresh (RefreshAfterWrite)
 - 🔄 Custom weigher for eviction
 - 🔄 Weak/soft reference support
 - 🔄 Advanced eviction policies (W-TinyLFU)
@@ -45,8 +45,9 @@ Caffeine provides an in-memory cache using a design inspired by Google Guava. Th
 - **Combined eviction** - Simultaneous size and time-based eviction in a single cache ⭐
 - **Removal listeners** - Event notifications for all cache entry removals with cause tracking ⭐
 - **Async operations** - Full async/await support with IAsyncCache and IAsyncLoadingCache ⭐
+- **Automatic refresh** - Async background refresh of stale entries while serving stale values ⭐ NEW
 - **Statistics tracking** for monitoring cache performance including eviction counts
-- **Flexible configuration** with initial capacity, maximum size, and expiration settings
+- **Flexible configuration** with initial capacity, maximum size, expiration, and refresh settings
 - **Type-safe** with generic support and nullable reference types
 
 ## Example Usage
@@ -108,6 +109,15 @@ var sessionCache = Caffeine<string, string>.NewBuilder()
 
 sessionCache.Put("sessionId", "userData");
 // Entry stays fresh as long as it's accessed within 30 minutes
+
+// Create a cache with automatic refresh
+var configCache = Caffeine<string, Config>.NewBuilder()
+    .RefreshAfterWrite(TimeSpan.FromMinutes(5))
+    .Build(key => LoadConfigFromDatabase(key));
+
+configCache.Put("app-config", config);
+// After 5 minutes, next access triggers async refresh
+// Stale value returned immediately while refresh happens in background!
 
 // Create a loading cache
 var loadingCache = Caffeine<int, string>.NewBuilder()

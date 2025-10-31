@@ -288,6 +288,14 @@ public sealed class Caffeine<K, V> where K : notnull
         
         bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
         bool hasSizeLimit = _maximumSize != UnsetInt;
+        bool hasRefresh = _refreshAfterWriteNanos != UnsetInt;
+
+        // Refresh requires a loading cache
+        if (hasRefresh)
+        {
+            var funcLoader = new FunctionCacheLoader<K, V>(loader);
+            return new RefreshingLoadingCache<K, V>(this, funcLoader, _refreshAfterWriteNanos);
+        }
 
         // Use combined implementation when both features are enabled
         if (hasSizeLimit && hasTimeExpiration)
@@ -321,6 +329,13 @@ public sealed class Caffeine<K, V> where K : notnull
         
         bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
         bool hasSizeLimit = _maximumSize != UnsetInt;
+        bool hasRefresh = _refreshAfterWriteNanos != UnsetInt;
+
+        // Refresh requires a loading cache
+        if (hasRefresh)
+        {
+            return new RefreshingLoadingCache<K, V>(this, loader, _refreshAfterWriteNanos);
+        }
 
         // Use combined implementation when both features are enabled
         if (hasSizeLimit && hasTimeExpiration)
