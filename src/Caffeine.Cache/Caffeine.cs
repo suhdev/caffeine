@@ -51,6 +51,7 @@ public sealed class Caffeine<K, V> where K : notnull
 
     private bool _recordStats = false;
     private RemovalListener<K, V>? _removalListener;
+    private bool _useWTinyLfu = false;
 
     private Caffeine() { }
 
@@ -244,6 +245,23 @@ public sealed class Caffeine<K, V> where K : notnull
     }
 
     /// <summary>
+    /// Enables the Window TinyLFU (W-TinyLFU) eviction policy for size-based caches.
+    /// W-TinyLFU uses frequency-based admission control combined with recency tracking
+    /// to achieve near-optimal hit rates. This policy is more sophisticated than simple
+    /// LRU eviction and performs better on many real-world workloads.
+    /// <para>
+    /// Note: W-TinyLFU is only used when MaximumSize is configured. It is the default
+    /// policy for size-based caches and provides better performance than LRU.
+    /// </para>
+    /// </summary>
+    /// <returns>This builder instance</returns>
+    public Caffeine<K, V> UseWTinyLfu()
+    {
+        _useWTinyLfu = true;
+        return this;
+    }
+
+    /// <summary>
     /// Builds a cache which does not automatically load values when keys are requested.
     /// <para>
     /// Consider using <see cref="Build(Func{K, V?})"/> instead if it is feasible to 
@@ -255,6 +273,12 @@ public sealed class Caffeine<K, V> where K : notnull
     {
         bool hasTimeExpiration = _expireAfterWriteNanos != UnsetInt || _expireAfterAccessNanos != UnsetInt;
         bool hasSizeLimit = _maximumSize != UnsetInt;
+
+        // Use W-TinyLFU for size-based caches when enabled (default for better performance)
+        if (hasSizeLimit && _useWTinyLfu && !hasTimeExpiration)
+        {
+            return new WTinyLfuCache<K, V>(this);
+        }
 
         // Use combined implementation when both features are enabled
         if (hasSizeLimit && hasTimeExpiration)
@@ -297,6 +321,13 @@ public sealed class Caffeine<K, V> where K : notnull
             return new RefreshingLoadingCache<K, V>(this, funcLoader, _refreshAfterWriteNanos);
         }
 
+        // Use W-TinyLFU for size-based loading caches when enabled
+        if (hasSizeLimit && _useWTinyLfu && !hasTimeExpiration)
+        {
+            var funcLoader = new FunctionCacheLoader<K, V>(loader);
+            return new WTinyLfuLoadingCache<K, V>(this, funcLoader);
+        }
+
         // Use combined implementation when both features are enabled
         if (hasSizeLimit && hasTimeExpiration)
         {
@@ -335,6 +366,12 @@ public sealed class Caffeine<K, V> where K : notnull
         if (hasRefresh)
         {
             return new RefreshingLoadingCache<K, V>(this, loader, _refreshAfterWriteNanos);
+        }
+
+        // Use W-TinyLFU for size-based loading caches when enabled
+        if (hasSizeLimit && _useWTinyLfu && !hasTimeExpiration)
+        {
+            return new WTinyLfuLoadingCache<K, V>(this, loader);
         }
 
         // Use combined implementation when both features are enabled
