@@ -34,28 +34,28 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
     private readonly int _protectedSize; // 80% of main cache
     private readonly bool _recordStats;
     private readonly RemovalListener<K, V>? _removalListener;
-    
+
     private long _hitCount;
     private long _missCount;
     private long _evictionCount;
     private int _windowCount;
     private int _probationCount;
     private int _protectedCount;
-    
+
     private enum QueueType
     {
         Window,
         Probation,
         Protected
     }
-    
+
     private sealed class CacheEntry
     {
         public K Key { get; }
         public V Value { get; set; }
         public QueueType Queue { get; set; }
         public LinkedListNode<CacheEntry>? Node { get; set; }
-        
+
         public CacheEntry(K key, V value, QueueType queue)
         {
             Key = key;
@@ -63,70 +63,70 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
             Queue = queue;
         }
     }
-    
+
     public WTinyLfuCache(Caffeine<K, V> builder)
     {
         int initialCapacity = builder.GetInitialCapacity();
         _maximumSize = builder.GetMaximumSize();
         _recordStats = builder.ShouldRecordStats();
         _removalListener = builder.GetRemovalListener();
-        
-        // Window: 1% of maximum size (minimum 1)
-        _windowSize = Math.Max(1, (int)(_maximumSize / 100));
-        
+
+        // Window: 1% of maximum size (minimum 1, but 0 if maximumSize is 0)
+        _windowSize = _maximumSize == 0 ? 0 : Math.Max(1, (int)(_maximumSize / 100));
+
         // Main cache: 99% of maximum size, split 80/20 between protected and probation
         int mainSize = (int)_maximumSize - _windowSize;
         _protectedSize = (int)(mainSize * 0.8);
-        
+
         _map = new ConcurrentDictionary<K, CacheEntry>(Environment.ProcessorCount, initialCapacity);
         _windowQueue = new LinkedList<CacheEntry>();
         _probationQueue = new LinkedList<CacheEntry>();
         _protectedQueue = new LinkedList<CacheEntry>();
         _sketch = new FrequencySketch<K>(_maximumSize);
     }
-    
+
     public V? GetIfPresent(K key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        
+
         if (_map.TryGetValue(key, out var entry))
         {
             if (_recordStats)
                 Interlocked.Increment(ref _hitCount);
-            
+
             // Record access in frequency sketch
             _sketch.Increment(key);
-            
+
             // Promote if in probation queue
             OnAccess(entry);
-            
+
             return entry.Value;
         }
-        
+
         if (_recordStats)
             Interlocked.Increment(ref _missCount);
-        
+
         return default;
     }
-    
+
     public V? Get(K key, Func<K, V?> mappingFunction)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(mappingFunction);
-        
+
         if (_map.TryGetValue(key, out var entry))
         {
             if (_recordStats)
                 Interlocked.Increment(ref _hitCount);
-            
+
             _sketch.Increment(key);
             OnAccess(entry);
             return entry.Value;
         }
-        
+
         if (_recordStats)
             Interlocked.Increment(ref _missCount);
-        
+
         var value = mappingFunction(key);
         if (value != null)
         {
@@ -134,14 +134,14 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
         }
         return value;
     }
-    
+
     public void Put(K key, V value)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
-        
+
         _sketch.Increment(key);
-        
+
         if (_map.TryGetValue(key, out var existingEntry))
         {
             // Update existing entry
@@ -164,17 +164,14 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
                     var node = _windowQueue.AddLast(newEntry);
                     newEntry.Node = node;
                     _windowCount++;
-                    
-                    // Evict if necessary
-                    while (_windowCount + _probationCount + _protectedCount > _maximumSize)
-                    {
-                        Evict();
-                    }
+
+                    // Evict if necessary - matches Java implementation
+                    EvictEntries();
                 }
             }
         }
     }
-    
+
     private void OnAccess(CacheEntry entry)
     {
         lock (_evictionLock)
@@ -196,18 +193,18 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
                     _probationQueue.Remove(entry.Node);
                     _probationCount--;
                 }
-                
+
                 entry.Queue = QueueType.Protected;
                 entry.Node = _protectedQueue.AddLast(entry);
                 _protectedCount++;
-                
+
                 // Demote from protected if too large
                 while (_protectedCount > _protectedSize && _protectedQueue.First != null)
                 {
                     var victim = _protectedQueue.First.Value;
                     _protectedQueue.RemoveFirst();
                     _protectedCount--;
-                    
+
                     victim.Queue = QueueType.Probation;
                     victim.Node = _probationQueue.AddLast(victim);
                     _probationCount++;
@@ -224,84 +221,230 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
             }
         }
     }
-    
-    private void Evict()
+
+    /// <summary>
+    /// Evicts entries if the cache exceeds the maximum. Matches Java implementation.
+    /// </summary>
+    private void EvictEntries()
     {
-        // Evict from window if too large
-        if (_windowCount > _windowSize && _windowQueue.First != null)
+        // Special case: if maximum size is 0, evict everything immediately
+        if (_maximumSize == 0)
         {
-            var victim = _windowQueue.First.Value;
-            _windowQueue.RemoveFirst();
-            _windowCount--;
-            
-            // Try to admit to main cache (probation)
-            if (!TryAdmitToMain(victim))
+            while (_windowQueue.First != null)
             {
-                _map.TryRemove(victim.Key, out _);
-                NotifyRemoval(victim.Key, victim.Value, RemovalCause.Size);
+                var entry = _windowQueue.First.Value;
+                _windowQueue.RemoveFirst();
+                _windowCount--;
+                entry.Node = null;
+                _map.TryRemove(entry.Key, out _);
+                NotifyRemoval(entry.Key, entry.Value, RemovalCause.Size);
                 if (_recordStats)
                     Interlocked.Increment(ref _evictionCount);
             }
             return;
         }
-        
-        // Evict from probation
-        if (_probationQueue.First != null)
-        {
-            var victim = _probationQueue.First.Value;
-            _probationQueue.RemoveFirst();
-            _probationCount--;
-            
-            _map.TryRemove(victim.Key, out _);
-            NotifyRemoval(victim.Key, victim.Value, RemovalCause.Size);
-            if (_recordStats)
-                Interlocked.Increment(ref _evictionCount);
-        }
+
+        var candidate = EvictFromWindow();
+        EvictFromMain(candidate);
     }
-    
-    private bool TryAdmitToMain(CacheEntry candidate)
+
+    /// <summary>
+    /// Evicts entries from the window space into the main space while the window size exceeds maximum.
+    /// Returns the first candidate promoted into the probation space.
+    /// </summary>
+    private CacheEntry? EvictFromWindow()
     {
-        // If main cache has space, admit immediately
-        if (_probationCount + _protectedCount < _maximumSize - _windowSize)
+        CacheEntry? firstCandidate = null;
+
+        // Only evict from window if it exceeds maxWindow (matches Java: sizeWindow <= maxWindow check)
+        while (_windowCount > _windowSize && _windowQueue.First != null)
         {
+            var candidate = _windowQueue.First.Value;
+            _windowQueue.RemoveFirst();
+            _windowCount--;
+
+            // Move candidate to probation (matches Java: candidate.status = PROBATION)
             candidate.Queue = QueueType.Probation;
             candidate.Node = _probationQueue.AddLast(candidate);
             _probationCount++;
-            return true;
-        }
-        
-        // Compare frequency with victim from probation
-        if (_probationQueue.First != null)
-        {
-            var victim = _probationQueue.First.Value;
-            int candidateFreq = _sketch.Frequency(candidate.Key);
-            int victimFreq = _sketch.Frequency(victim.Key);
-            
-            // Admit if candidate is more frequent
-            if (candidateFreq > victimFreq)
+
+            if (firstCandidate == null)
             {
-                _probationQueue.RemoveFirst();
-                _probationCount--;
-                
+                firstCandidate = candidate;
+            }
+        }
+
+        return firstCandidate;
+    }
+
+    /// <summary>
+    /// Evicts entries from the main space if the cache exceeds the maximum capacity.
+    /// The main space determines whether admitting an entry (coming from the window space) is
+    /// preferable to retaining the eviction policy's victim using frequency comparison.
+    /// </summary>
+    private void EvictFromMain(CacheEntry? candidate)
+    {
+        // Continue evicting until total size is within limits
+        while (_windowCount + _probationCount + _protectedCount > _maximumSize)
+        {
+            // Search the admission window for additional candidates if needed
+            if (candidate == null && _windowQueue.First != null)
+            {
+                candidate = _windowQueue.First.Value;
+                _windowQueue.RemoveFirst();
+                _windowCount--;
+
+                // Move to probation
+                candidate.Queue = QueueType.Probation;
+                candidate.Node = _probationQueue.AddLast(candidate);
+                _probationCount++;
+            }
+
+            // Get victim from probation (LRU) - matches Java implementation
+            CacheEntry? victim = _probationQueue.First?.Value;
+            QueueType victimSource = QueueType.Probation;
+
+            // If probation is empty or only has candidate, try protected, then window
+            if (victim == null || (candidate != null && victim == candidate))
+            {
+                if (_protectedQueue.First != null)
+                {
+                    victim = _protectedQueue.First.Value;
+                    victimSource = QueueType.Protected;
+                }
+                else if (_windowQueue.First != null)
+                {
+                    victim = _windowQueue.First.Value;
+                    victimSource = QueueType.Window;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            // Evict immediately if only one of the entries is present
+            if (victim == null)
+            {
+                if (candidate != null)
+                {
+                    // Only candidate, evict it
+                    _probationQueue.Remove(candidate.Node!);
+                    _probationCount--;
+                    candidate.Node = null;
+
+                    _map.TryRemove(candidate.Key, out _);
+                    NotifyRemoval(candidate.Key, candidate.Value, RemovalCause.Size);
+                    if (_recordStats)
+                        Interlocked.Increment(ref _evictionCount);
+                    candidate = null;
+                }
+                continue;
+            }
+            else if (candidate == null)
+            {
+                // Only victim, evict it
+                if (victimSource == QueueType.Probation)
+                {
+                    _probationQueue.RemoveFirst();
+                    _probationCount--;
+                }
+                else if (victimSource == QueueType.Protected)
+                {
+                    _protectedQueue.RemoveFirst();
+                    _protectedCount--;
+                }
+                else
+                {
+                    _windowQueue.RemoveFirst();
+                    _windowCount--;
+                }
+                victim.Node = null;
+
                 _map.TryRemove(victim.Key, out _);
                 NotifyRemoval(victim.Key, victim.Value, RemovalCause.Size);
                 if (_recordStats)
                     Interlocked.Increment(ref _evictionCount);
-                
-                candidate.Queue = QueueType.Probation;
-                candidate.Node = _probationQueue.AddLast(candidate);
-                _probationCount++;
-                return true;
+                continue;
+            }
+
+            // Both candidate and victim present - compare frequencies
+            if (Admit(candidate.Key, victim.Key))
+            {
+                // Admit candidate, evict victim
+                if (victimSource == QueueType.Probation)
+                {
+                    _probationQueue.RemoveFirst();
+                    _probationCount--;
+                }
+                else if (victimSource == QueueType.Protected)
+                {
+                    _protectedQueue.RemoveFirst();
+                    _protectedCount--;
+                }
+                else
+                {
+                    _windowQueue.RemoveFirst();
+                    _windowCount--;
+                }
+                victim.Node = null;
+
+                _map.TryRemove(victim.Key, out _);
+                NotifyRemoval(victim.Key, victim.Value, RemovalCause.Size);
+                if (_recordStats)
+                    Interlocked.Increment(ref _evictionCount);
+
+                candidate = null; // Candidate stays in probation
+            }
+            else
+            {
+                // Evict candidate (it was already added to probation, so remove it)
+                _probationQueue.Remove(candidate.Node!);
+                _probationCount--;
+                candidate.Node = null;
+
+                _map.TryRemove(candidate.Key, out _);
+                NotifyRemoval(candidate.Key, candidate.Value, RemovalCause.Size);
+                if (_recordStats)
+                    Interlocked.Increment(ref _evictionCount);
+
+                candidate = null; // Candidate was evicted
             }
         }
-        
+    }
+
+    /// <summary>
+    /// Determines if the candidate should be accepted into the main space, as determined by its
+    /// frequency relative to the victim. Matches Java implementation.
+    /// </summary>
+    private bool Admit(K candidateKey, K victimKey)
+    {
+        int candidateFreq = _sketch.Frequency(candidateKey);
+        int victimFreq = _sketch.Frequency(victimKey);
+
+        // Admit if candidate has strictly higher frequency (matches Java: candidateFreq > victimFreq)
+        if (candidateFreq > victimFreq)
+        {
+            return true;
+        }
+
+        // Hash collision protection: if candidate frequency >= threshold, randomly admit
+        // This protects against attacks where victim frequency is artificially raised
+        const int ADMIT_HASHDOS_THRESHOLD = 7; // Max is 15, halved after reset is ~7
+        if (candidateFreq >= ADMIT_HASHDOS_THRESHOLD)
+        {
+            // Randomly admit with probability 1/128 (matches Java: (random & 127) == 0)
+            var random = Random.Shared.Next();
+            return (random & 127) == 0;
+        }
+
         return false;
     }
-    
+
     public void Invalidate(K key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        
+
         if (_map.TryRemove(key, out var entry))
         {
             lock (_evictionLock)
@@ -311,17 +454,17 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
             }
         }
     }
-    
+
     public void InvalidateAll(IEnumerable<K> keys)
     {
         ArgumentNullException.ThrowIfNull(keys);
-        
+
         foreach (var key in keys)
         {
             Invalidate(key);
         }
     }
-    
+
     public void InvalidateAll()
     {
         var keys = _map.Keys.ToList();
@@ -330,7 +473,7 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
             Invalidate(key);
         }
     }
-    
+
     private void RemoveFromQueue(CacheEntry entry)
     {
         if (entry.Node != null)
@@ -353,11 +496,11 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
             entry.Node = null;
         }
     }
-    
+
     public IReadOnlyDictionary<K, V> GetAllPresent(IEnumerable<K> keys)
     {
         ArgumentNullException.ThrowIfNull(keys);
-        
+
         var result = new Dictionary<K, V>();
         foreach (var key in keys)
         {
@@ -369,16 +512,16 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
         }
         return result;
     }
-    
+
     public IReadOnlyDictionary<K, V> GetAll(IEnumerable<K> keys, Func<ISet<K>, IDictionary<K, V>> mappingFunction)
     {
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(mappingFunction);
-        
+
         var keySet = new HashSet<K>(keys);
         var result = new Dictionary<K, V>();
         var missingKeys = new HashSet<K>();
-        
+
         foreach (var key in keySet)
         {
             var value = GetIfPresent(key);
@@ -391,7 +534,7 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
                 missingKeys.Add(key);
             }
         }
-        
+
         if (missingKeys.Count > 0)
         {
             var computed = mappingFunction(missingKeys);
@@ -401,20 +544,20 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
                 result[kvp.Key] = kvp.Value;
             }
         }
-        
+
         return result;
     }
-    
+
     public void PutAll(IDictionary<K, V> map)
     {
         ArgumentNullException.ThrowIfNull(map);
-        
+
         foreach (var kvp in map)
         {
             Put(kvp.Key, kvp.Value);
         }
     }
-    
+
     private void NotifyRemoval(K key, V value, RemovalCause cause)
     {
         if (_removalListener != null)
@@ -429,31 +572,31 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
             }
         }
     }
-    
+
     private sealed class EmptyPolicy<TK, TV> : IPolicy<TK, TV> where TK : notnull
     {
         // Policy methods not yet implemented
     }
-    
+
     public long EstimatedSize() => _map.Count;
-    
+
     public ICacheStats Stats()
     {
         if (!_recordStats)
             return CacheStats.Empty();
-        
+
         long hits = Interlocked.Read(ref _hitCount);
         long misses = Interlocked.Read(ref _missCount);
         long evictions = Interlocked.Read(ref _evictionCount);
-        
+
         return CacheStats.Of(hits, misses, 0, 0, 0, evictions, 0);
     }
-    
+
     public void CleanUp()
     {
         // W-TinyLFU performs cleanup during operations
     }
-    
+
     public ConcurrentDictionary<K, V> AsMap()
     {
         var result = new ConcurrentDictionary<K, V>(Environment.ProcessorCount, (int)EstimatedSize());
@@ -463,6 +606,6 @@ internal sealed class WTinyLfuCache<K, V> : ICache<K, V> where K : notnull
         }
         return result;
     }
-    
+
     public IPolicy<K, V> Policy() => new EmptyPolicy<K, V>();
 }
